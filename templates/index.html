@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AI 面試練習室</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@300;400;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+  <!-- SETUP SCREEN -->
+  <div id="setup-screen" class="screen active">
+    <div class="setup-container">
+      <header class="setup-header">
+        <div class="logo-mark">
+          <span class="logo-icon">⬡</span>
+          <span class="logo-text">InterviewAI</span>
+        </div>
+        <h1>AI 面試練習室</h1>
+        <p class="subtitle">上傳職缺資訊與您的履歷，<br>由 AI 擔任面試官，模擬真實面試情境</p>
+      </header>
+
+      <div class="setup-grid">
+        <!-- JD Input -->
+        <div class="input-card" id="jd-card">
+          <div class="card-header">
+            <span class="card-num">01</span>
+            <h2>職位描述 <span class="required">*</span></h2>
+          </div>
+          <p class="card-desc">貼上職缺的完整 JD（職位描述、工作內容、要求條件）</p>
+          <textarea
+            id="jd-input"
+            placeholder="例如：&#10;職位：資深前端工程師&#10;工作內容：&#10;• 負責產品前端架構設計與開發&#10;• 與 UI/UX 設計師協作&#10;• 進行 Code Review...&#10;&#10;要求條件：&#10;• 3 年以上前端開發經驗&#10;• 熟悉 React / Vue.js..."
+          ></textarea>
+          <div class="char-count" id="jd-count">0 字</div>
+        </div>
+
+        <!-- Resume Input -->
+        <div class="input-card" id="resume-card">
+          <div class="card-header">
+            <span class="card-num">02</span>
+            <h2>個人履歷 <span class="required">*</span></h2>
+          </div>
+          <p class="card-desc">上傳 PDF 履歷，或直接貼上履歷文字</p>
+
+          <div class="upload-zone" id="upload-zone">
+            <input type="file" id="pdf-input" accept=".pdf" hidden />
+            <div class="upload-icon">📄</div>
+            <p class="upload-primary">點擊上傳 PDF 履歷</p>
+            <p class="upload-secondary">或拖曳 PDF 檔案至此</p>
+            <div class="upload-status" id="upload-status"></div>
+          </div>
+
+          <div class="divider-text">— 或直接輸入文字 —</div>
+
+          <textarea
+            id="resume-text-input"
+            placeholder="將您的履歷文字貼在此處（教育背景、工作經歷、專案、技能等）"
+          ></textarea>
+        </div>
+      </div>
+
+      <!-- Start Button -->
+      <div class="start-section">
+        <button id="start-btn" class="start-btn" onclick="startInterview()">
+          <span class="btn-text">開始模擬面試</span>
+          <span class="btn-icon">→</span>
+        </button>
+        <p class="start-note">AI 將根據您的 JD 與履歷，擬定個人化面試問題</p>
+      </div>
+
+      <!-- Loading Overlay -->
+      <div id="loading-overlay" class="loading-overlay hidden">
+        <div class="loading-box">
+          <div class="loading-spinner"></div>
+          <p id="loading-text">正在分析職缺與履歷資料...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- INTERVIEW SCREEN -->
+  <div id="interview-screen" class="screen">
+    <div class="interview-layout">
+
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <div class="sidebar-top">
+          <div class="logo-mark small">
+            <span class="logo-icon">⬡</span>
+            <span class="logo-text">InterviewAI</span>
+          </div>
+          <div class="interview-status">
+            <div class="status-dot"></div>
+            <span>面試進行中</span>
+          </div>
+        </div>
+
+        <div class="interviewer-card">
+          <div class="interviewer-avatar">
+            <div class="avatar-ring">
+              <div class="avatar-inner">HR</div>
+            </div>
+            <div class="avatar-pulse"></div>
+          </div>
+          <div class="interviewer-info">
+            <h3>AI 面試官</h3>
+            <p>資深人才招募專員</p>
+          </div>
+        </div>
+
+        <div class="sidebar-stats">
+          <div class="stat-item">
+            <span class="stat-label">問答回合</span>
+            <span class="stat-val" id="round-count">0</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">面試時長</span>
+            <span class="stat-val" id="timer-display">00:00</span>
+          </div>
+        </div>
+
+        <div class="sidebar-actions">
+          <button class="action-btn feedback-btn" onclick="requestFeedback()">
+            <span>📊</span> 查看面試評估
+          </button>
+          <button class="action-btn end-btn" onclick="endInterview()">
+            <span>✕</span> 結束面試
+          </button>
+        </div>
+      </aside>
+
+      <!-- Chat Area -->
+      <main class="chat-area">
+        <div class="chat-header">
+          <h2 id="chat-title">模擬面試進行中</h2>
+          <p id="chat-subtitle">請認真回答每個問題，如同真實面試一樣</p>
+        </div>
+
+        <div class="messages-container" id="messages">
+          <!-- Messages injected here -->
+        </div>
+
+        <div class="input-area">
+          <div class="input-wrapper">
+            <textarea
+              id="chat-input"
+              placeholder="輸入您的回答..."
+              rows="3"
+              onkeydown="handleKeyDown(event)"
+            ></textarea>
+            <button id="send-btn" onclick="sendMessage()">
+              <span class="send-icon">↑</span>
+            </button>
+          </div>
+          <p class="input-hint">按 Ctrl + Enter 送出 · Enter 換行</p>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- FEEDBACK MODAL -->
+  <div id="feedback-modal" class="modal hidden">
+    <div class="modal-backdrop" onclick="closeFeedback()"></div>
+    <div class="modal-box">
+      <div class="modal-header">
+        <h2>📊 面試表現評估</h2>
+        <button class="modal-close" onclick="closeFeedback()">✕</button>
+      </div>
+      <div class="modal-body" id="feedback-content">
+        <div class="loading-spinner"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="action-btn feedback-btn" onclick="closeFeedback()">繼續練習</button>
+        <button class="action-btn end-btn" onclick="endInterview()">結束面試</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/main.js"></script>
+</body>
+</html>
