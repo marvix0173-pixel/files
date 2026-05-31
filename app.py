@@ -4,7 +4,7 @@ import os
 import PyPDF2
 import io
 import uuid
-import requests
+import requests 
 
 load_dotenv()
 
