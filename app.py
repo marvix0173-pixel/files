@@ -1,21 +1,20 @@
-from flask import Flask, request, jsonify, render_template, session
+from flask import Flask, request, jsonify, render_template
 from dotenv import load_dotenv
-load_dotenv()   
-import google.generativeai as genai
 import os
 import PyPDF2
 import io
-import json
 import uuid
+import requests
+
+load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "interview-bot-secret-2024")
 
-# Configure Gemini
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-genai.configure(api_key=GEMINI_API_KEY)
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+GEMINI_MODEL = "google/gemini-2.5-flash"
 
-# In-memory session store (for production use Redis/DB)
+# In-memory session store
 sessions = {}
 
 def extract_pdf_text(pdf_bytes):
@@ -58,6 +57,41 @@ def build_system_prompt(jd_text, resume_text):
 
 現在，請開始這場面試。"""
 
+def call_openrouter(system_prompt, history, user_message):
+    """Call Gemini via OpenRouter API"""
+    if not OPENROUTER_API_KEY:
+        raise ValueError("OPENROUTER_API_KEY 未設定，請檢查 .env 檔案")
+
+    # Build messages array
+    messages = [{"role": "system", "content": system_prompt}]
+
+    # Add history (skip first trigger message)
+    for i, msg in enumerate(history):
+        if i == 0:
+            continue  # skip "請開始面試" trigger
+        role = "assistant" if msg["role"] == "model" else "user"
+        messages.append({"role": role, "content": msg["parts"][0]})
+
+    # Add current user message
+    messages.append({"role": "user", "content": user_message})
+
+    res = requests.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "http://localhost:5000",
+            "X-Title": "Interview Bot"
+        },
+        json={
+            "model": GEMINI_MODEL,
+            "messages": messages
+        },
+        timeout=60
+    )
+    res.raise_for_status()
+    return res.json()["choices"][0]["message"]["content"]
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -82,38 +116,25 @@ def start_interview():
         if not resume_text:
             return jsonify({"error": "請上傳履歷 PDF 或輸入履歷文字"}), 400
 
-        # Create session
         session_id = str(uuid.uuid4())
         system_prompt = build_system_prompt(jd_text, resume_text)
 
-        # Initialize Gemini model
-        model = genai.GenerativeModel(
-            model_name="gemini-2.5-flash",
-            system_instruction=system_prompt
-        )
+        # Get opening message from AI
+        opening_message = call_openrouter(system_prompt, [], "請開始面試。")
 
-        # Start chat and get opening message
-        chat = model.start_chat(history=[])
-        response = chat.send_message("請開始面試。")
-
-        opening_message = response.text
-
-        # Store session data
+        # Store session
         sessions[session_id] = {
             "jd_text": jd_text,
             "resume_text": resume_text,
             "system_prompt": system_prompt,
             "history": [
-                {"role": "user", "parts": ["請開始面試。"]},
+                {"role": "user",  "parts": ["請開始面試。"]},
                 {"role": "model", "parts": [opening_message]}
             ],
             "message_count": 1
         }
 
-        return jsonify({
-            "session_id": session_id,
-            "message": opening_message
-        })
+        return jsonify({"session_id": session_id, "message": opening_message})
 
     except Exception as e:
         return jsonify({"error": f"啟動面試失敗：{str(e)}"}), 500
@@ -134,25 +155,18 @@ def chat():
 
         sess = sessions[session_id]
 
-        # Rebuild chat with history
-        model = genai.GenerativeModel(
-            model_name="gemini-2.5-flash",
-            system_instruction=sess["system_prompt"]
+        ai_message = call_openrouter(
+            sess["system_prompt"],
+            sess["history"],
+            user_message
         )
 
-        chat_session = model.start_chat(history=sess["history"])
-        response = chat_session.send_message(user_message)
-        ai_message = response.text
-
         # Update history
-        sess["history"].append({"role": "user", "parts": [user_message]})
+        sess["history"].append({"role": "user",  "parts": [user_message]})
         sess["history"].append({"role": "model", "parts": [ai_message]})
         sess["message_count"] += 1
 
-        return jsonify({
-            "message": ai_message,
-            "message_count": sess["message_count"]
-        })
+        return jsonify({"message": ai_message, "message_count": sess["message_count"]})
 
     except Exception as e:
         return jsonify({"error": f"回應失敗：{str(e)}"}), 500
@@ -172,11 +186,10 @@ def get_feedback():
         if sess["message_count"] < 3:
             return jsonify({"error": "面試對話太少，請多練習後再查看評估"}), 400
 
-        # Build conversation transcript
+        # Build transcript
         transcript = ""
-        history = sess["history"]
-        for i, msg in enumerate(history):
-            if msg["role"] == "user" and i > 0:  # Skip first "start" message
+        for i, msg in enumerate(sess["history"]):
+            if msg["role"] == "user" and i > 0:
                 transcript += f"應聘者：{msg['parts'][0]}\n\n"
             elif msg["role"] == "model" and i > 1:
                 transcript += f"面試官：{msg['parts'][0]}\n\n"
@@ -206,10 +219,9 @@ def get_feedback():
 ## 🎯 錄取可能性評估
 （根據回答品質與職位要求，評估錄取機率與原因）"""
 
-        model = genai.GenerativeModel(model_name="gemini-2.5-flash")
-        response = model.generate_content(feedback_prompt)
+        feedback = call_openrouter("你是專業的面試評估專家，請用繁體中文回答。", [], feedback_prompt)
 
-        return jsonify({"feedback": response.text})
+        return jsonify({"feedback": feedback})
 
     except Exception as e:
         return jsonify({"error": f"生成評估失敗：{str(e)}"}), 500
@@ -226,12 +238,5 @@ def end_interview():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-import os
-
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-
-    app.run(
-        host="0.0.0.0",
-        port=port
-    )
+    app.run(debug=True, port=5000)
